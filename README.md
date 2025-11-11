@@ -45,7 +45,88 @@ User Request (https://domain.com)
 
 ---
 
-## 3. Terraform Structure
+## 3. Installation
+
+### Prerequisites
+
+- AWS CLI configured with appropriate credentials
+- Terraform >= 1.5.0
+- Bash shell
+
+### Setup Steps
+
+1. **Create the Terraform Backend Infrastructure**
+
+   Before running Terraform, you need to create the S3 bucket for state storage and DynamoDB table for state locking:
+
+   ```bash
+   cd bin
+   ./terra-backend.sh
+   ```
+
+   This script will create:
+   - S3 bucket: `testproject-terraform-state-f0fa1141` with versioning and encryption enabled
+   - DynamoDB table: `testproject-terraform-lock-f0fa1141` for state locking
+
+2. **Add Your Website Content**
+
+   Create directories in the `config/` folder for each domain you want to host. The directory name must match the domain name:
+
+   ```bash
+   mkdir -p config/www.example.com
+   mkdir -p config/blog.example.com
+   ```
+
+   Add your static website files to each directory:
+
+   ```bash
+   # Example structure
+   config/
+   ├── www.example.com/
+   │   ├── index.html
+   │   ├── css/
+   │   │   └── style.css
+   │   └── images/
+   │       └── logo.png
+   └── blog.example.com/
+       ├── index.html
+       └── assets/
+   ```
+
+3. **Initialize and Deploy Infrastructure**
+
+   ```bash
+   cd terraform-infrastructure
+   terraform init
+   terraform plan
+   terraform apply
+   ```
+
+4. **Configure DNS Records**
+
+   After the initial `terraform apply`, the output will provide DNS records that need to be added to your DNS provider:
+   - ACM validation CNAME records (for certificate validation)
+   - Domain CNAME records (pointing to the CloudFront distribution)
+
+5. **Wait for Certificate Validation**
+
+   Once DNS records are added and propagate, AWS will validate the ACM certificate. You can monitor the status:
+
+   ```bash
+   aws acm describe-certificate --certificate-arn <ARN> --region us-east-1
+   ```
+
+6. **Final Apply**
+
+   After the certificate is validated, run `terraform apply` again to attach the custom domains to CloudFront:
+
+   ```bash
+   terraform apply
+   ```
+
+---
+
+## 4. Terraform Structure
 
 The infrastructure is managed using Terraform, organized into modules for reusability and clarity.
 
@@ -60,7 +141,7 @@ The infrastructure is managed using Terraform, organized into modules for reusab
 
 ---
 
-## 4. Deployment Workflow (CI/CD)
+## 5. Deployment Workflow (CI/CD)
 
 The entire deployment process is automated via the `.gitlab-ci.yml` pipeline.
 
@@ -87,7 +168,7 @@ The entire deployment process is automated via the `.gitlab-ci.yml` pipeline.
 
 ---
 
-## 5. Domain Management
+## 6. Domain Management
 
 **To add a new domain:**
 
@@ -104,7 +185,7 @@ The CI/CD pipeline will automatically:
 
 ---
 
-## 6. Content Management
+## 7. Content Management
 
 **To update the content of an existing website:**
 
