@@ -3,7 +3,7 @@
 
 # SUFFIX=$(openssl rand -hex 4)
 # For consistency, using a fixed suffix
-SUFFIX="eb9509bc"
+SUFFIX="f0fa1141"
 PROJECT="testproject" 
 BUCKET_NAME="${PROJECT}-terraform-state-${SUFFIX}"
 TABLE_NAME="${PROJECT}-terraform-lock-${SUFFIX}"
