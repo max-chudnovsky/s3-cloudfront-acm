@@ -1,0 +1,155 @@
+stages:
+  - deploy
+  - sync
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS == null'
+
+variables:
+  AWS_DEFAULT_REGION: us-east-1
+  TF_ROOT: ${CI_PROJECT_DIR}/terraform-infrastructure
+  TF_STATE_NAME: infrastructure
+
+# Cache Terraform plugins and .terraform directory
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - ${TF_ROOT}/.terraform
+    - ${TF_ROOT}/.terraform.lock.hcl
+
+# ------------------------------
+# Deploy infrastructure if needed
+# ------------------------------
+deploy:infrastructure:
+  stage: deploy
+  image:
+    name: hashicorp/terraform:1.13
+    entrypoint: [""]
+  before_script:
+    - apk add --no-cache git
+    - cd ${TF_ROOT}
+    - export AWS_ACCESS_KEY_ID=$(echo "${AWS_ACCESS_KEY_ID}" | tr -d '[:space:]')
+    - export AWS_SECRET_ACCESS_KEY=$(echo "${AWS_SECRET_ACCESS_KEY}" | tr -d '[:space:]')
+    - export AWS_DEFAULT_REGION=$(echo "${AWS_DEFAULT_REGION}" | tr -d '[:space:]')
+    - |
+      # Check if we should run
+      echo "Checking if deployment needed..."
+      
+      # Check for new directories in config/ (files added under a new directory)
+      NEW_DIRS=$(git diff --name-only --diff-filter=A HEAD~1 HEAD 2>/dev/null | grep "^config/[^/]*/" | cut -d'/' -f2 | sort -u | wc -l || true)
+      NEW_DIRS=${NEW_DIRS:-0}
+      
+      # Check for deleted directories in config/ (files deleted from a directory)
+      DELETED_DIRS=$(git diff --name-only --diff-filter=D HEAD~1 HEAD 2>/dev/null | grep "^config/[^/]*/" | cut -d'/' -f2 | sort -u | wc -l || true)
+      DELETED_DIRS=${DELETED_DIRS:-0}
+      
+      # Check if terraform files changed
+      TERRAFORM_CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep "^terraform-infrastructure/" | wc -l || true)
+      TERRAFORM_CHANGED=${TERRAFORM_CHANGED:-0}
+      
+      echo "  Terraform files changed: $TERRAFORM_CHANGED"
+      echo "  New site directories: $NEW_DIRS"
+      echo "  Deleted site directories: $DELETED_DIRS"
+      
+      # Check if terraform files changed or site directories added/removed
+      if [ "$TERRAFORM_CHANGED" -gt 0 ] || [ "$NEW_DIRS" -gt 0 ] || [ "$DELETED_DIRS" -gt 0 ]; then
+        echo "✓ Terraform deployment needed"
+      else
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "INFO: No terraform changes or site directory changes detected"
+        echo "INFO: Skipping deployment"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 0
+      fi
+    - |
+      # Run validation first
+      echo "Running terraform validation..."
+      terraform init -backend-config="bucket=testproject-terraform-state-eb9509bc" -backend-config="key=infrastructure/terraform.tfstate" -backend-config="region=${AWS_DEFAULT_REGION}"
+      terraform validate
+      terraform fmt -check
+  script:
+    # Deploy everything
+    - terraform apply -auto-approve
+
+    # Export outputs
+    - terraform output -json > ${CI_PROJECT_DIR}/terraform-outputs.json
+    - terraform output deployment_instructions
+    - terraform output octodns_domain_records
+    - terraform output octodns_validation_records
+    - terraform output dns_records_summary
+
+    # ACM certificate wait logic - only wait if new domain was added
+    - |
+      if [ "$NEW_DIRS" -gt 0 ]; then
+        CERT_ARN=$(terraform output -raw acm_certificate_arn 2>/dev/null || echo "")
+        if [ -n "$CERT_ARN" ] && [ "$CERT_ARN" != "null" ]; then
+          echo "New domain added, waiting for ACM certificate validation..."
+          MAX_WAIT=1800
+          ELAPSED=0
+          INTERVAL=30
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            STATUS=$(aws acm describe-certificate --certificate-arn "$CERT_ARN" --region $AWS_DEFAULT_REGION --query 'Certificate.Status' --output text 2>/dev/null || echo "ERROR")
+            if [ "$STATUS" = "ISSUED" ]; then
+              echo "Certificate validated, re-running terraform apply..."
+              terraform apply -auto-approve
+              break
+            elif [ "$STATUS" = "ERROR" ] || [ "$STATUS" = "FAILED" ]; then
+              echo "Certificate validation failed: $STATUS"
+              break
+            else
+              echo "Status: $STATUS (waiting ${ELAPSED}s / ${MAX_WAIT}s)"
+              sleep $INTERVAL
+              ELAPSED=$((ELAPSED + INTERVAL))
+            fi
+          done
+          if [ $ELAPSED -ge $MAX_WAIT ]; then
+            echo "Timeout waiting for certificate validation."
+          fi
+        else
+          echo "No ACM certificate created, skipping validation wait."
+        fi
+      else
+        echo "No new domains added, skipping certificate validation wait."
+      fi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"'
+      when: on_success
+    - when: never
+  environment:
+    name: production
+
+# ------------------------------
+# Sync content to S3.  Sync only copies changed files so its safe to run each time with no additional checks
+# ------------------------------
+sync:content:
+  stage: sync
+  image:
+    name: amazon/aws-cli:latest
+    entrypoint: [""]
+  script:
+    - |
+      # Use hardcoded values - these don't change
+      export BUCKET_NAME="testproject-static-content"
+      export DISTRIBUTION_ID="E1LLAYCAC7L816"
+      
+      echo "Syncing to S3 bucket: $BUCKET_NAME"
+      
+      # Capture sync output to check if anything changed
+      SYNC_OUTPUT=$(aws s3 sync ${CI_PROJECT_DIR}/config s3://${BUCKET_NAME}/ --delete --exclude ".*" 2>&1)
+      echo "$SYNC_OUTPUT"
+      
+      # Check if any files were uploaded, downloaded, or deleted
+      if echo "$SYNC_OUTPUT" | grep -qE "(upload|download|delete):"; then
+        echo "Files changed, creating CloudFront invalidation..."
+        aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
+      else
+        echo "No files changed, skipping CloudFront invalidation"
+      fi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"'
+      when: on_success
+    - when: never
+  environment:
+    name: production

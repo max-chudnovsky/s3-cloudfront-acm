@@ -1,0 +1,44 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Backup files
+*.backup
+*.bak
+*.tmp
+
+# AWS CLI cache
+.aws/cli/cache/
+
+# Sensitive files
+secrets.yaml
+private-key.pem
+*.pem
+*.key
+
+# Plan files (if you don't want to commit them)
+*.tfplan

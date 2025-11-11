@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Example Domain 2</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Welcome to Example2.com - sync</h1>
+            <p>A different domain, same infrastructure</p>
+        </header>
+
+        <main>
+            <section class="intro">
+                <h2>Multi-Domain Architecture</h2>
+                <p>This page demonstrates how multiple domains can be served from the same CloudFront distribution and S3 bucket, each with its own content and styling.</p>
+            </section>
+
+            <section class="benefits">
+                <h3>Benefits</h3>
+                <div class="grid">
+                    <div class="card">
+                        <h4>Cost Effective</h4>
+                        <p>Single S3 bucket and CloudFront distribution for all domains</p>
+                    </div>
+                    <div class="card">
+                        <h4>Scalable</h4>
+                        <p>Add new domains by simply creating new folders</p>
+                    </div>
+                    <div class="card">
+                        <h4>Fast</h4>
+                        <p>CloudFront CDN ensures fast delivery worldwide</p>
+                    </div>
+                    <div class="card">
+                        <h4>Secure</h4>
+                        <p>HTTPS enabled with automatic certificate management</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="info">
+                <h3>How It Works</h3>
+                <ol>
+                    <li>Each domain has its own folder in <code>config/</code></li>
+                    <li>CloudFront Function rewrites URLs to map domains to S3 paths</li>
+                    <li>Single SSL certificate covers all domains</li>
+                    <li>Content is cached at edge locations globally</li>
+                </ol>
+            </section>
+        </main>
+
+        <footer>
+            <p>&copy; 2024 Example2.com - Multi-Domain Static Hosting</p>
+        </footer>
+    </div>
+</body>
+</html>
